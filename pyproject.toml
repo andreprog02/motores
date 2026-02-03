@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "motor-manager"
+version = "0.1.0"
+description = "SaaS de Gestão de Ativos e Manutenção"
+authors = ["Dev Senior <seu@email.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+Django = "^5.0"
+psycopg2-binary = "^2.9"       # Conector do Supabase/PostgreSQL
+django-environ = "^0.11"       # Para ler o arquivo .env
+Pillow = "^10.0"               # Para lidar com imagens/fotos das peças
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.1.6"               # Linter (Qualidade de código)
+black = "^23.11"              # Formatador automático
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
