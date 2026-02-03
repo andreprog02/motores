@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from src.apps.core.models import TenantAwareModel
+
 class CategoriaPeca(TenantAwareModel):
     nome = models.CharField(max_length=100)
     
@@ -20,6 +21,22 @@ class CatalogoPeca(TenantAwareModel):
     codigo_fabricante = models.CharField(max_length=100, blank=True, null=True)
     categoria = models.ForeignKey(CategoriaPeca, on_delete=models.PROTECT)
     
+    # --- LÓGICA DE COMPATIBILIDADE ---
+    aplicacao_universal = models.BooleanField(
+        default=False,
+        verbose_name="Uso Universal / Genérico",
+        help_text="Marque se esta peça serve para qualquer aplicação (ex: Óleo, Ferramentas). Se marcado, a lista de modelos será ignorada."
+    )
+
+    modelos_compativeis = models.ManyToManyField(
+        'assets.ModeloMotor', 
+        blank=True, 
+        related_name='pecas_compativeis',
+        verbose_name="Modelos Compatíveis",
+        help_text="Se não for universal, selecione quais modelos de motor podem usar esta peça."
+    )
+    # ---------------------------------------
+
     # Configurações de Rastreabilidade
     requer_serial_number = models.BooleanField(
         default=False, 
@@ -50,7 +67,7 @@ class CatalogoPeca(TenantAwareModel):
     class Meta:
         verbose_name = "Catálogo de Peça (Mestre)"
         verbose_name_plural = "Catálogo de Peças (Mestre)"
-        unique_together = ('tenant', 'codigo_fabricante') # Evita duplicidade no mesmo cliente
+        unique_together = ('tenant', 'codigo_fabricante')
 
     def __str__(self):
         return f"{self.nome} ({self.codigo_fabricante or 'S/N'})"
@@ -71,13 +88,15 @@ class EstoqueItem(TenantAwareModel):
     """
     catalogo = models.ForeignKey(CatalogoPeca, on_delete=models.CASCADE, related_name='estoques')
     local = models.ForeignKey(LocalEstoque, on_delete=models.CASCADE)
-    quantidade = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    minimo_seguranca = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # --- MUDANÇA AQUI: DecimalField -> IntegerField ---
+    # Isso remove o ",00" e aceita apenas números inteiros (1, 10, 500)
+    quantidade = models.IntegerField(default=0, help_text="Quantidade física (Inteiro)")
+    minimo_seguranca = models.IntegerField(default=0)
 
     class Meta:
         verbose_name = "Item em Estoque"
         verbose_name_plural = "Itens em Estoque"
-        # Garante que não tenha 2 registros da mesma peça no mesmo local
         unique_together = ('tenant', 'catalogo', 'local')
 
     def __str__(self):
