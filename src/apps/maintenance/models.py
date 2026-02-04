@@ -2,38 +2,71 @@ from django.db import models
 from src.apps.core.models import TenantAwareModel
 from src.apps.assets.models import Motor
 from src.apps.components.models import PosicaoComponente
+from src.apps.inventory.models import EstoqueItem
 
 class RegistroManutencao(TenantAwareModel):
-    # --- CAMPOS OBRIGATÓRIOS (Ativos) ---
-    motor = models.ForeignKey(Motor, on_delete=models.CASCADE, related_name='manutencoes')
-    posicao = models.ForeignKey(PosicaoComponente, on_delete=models.CASCADE, related_name='historico_manutencao')
-    
+    TIPOS_SERVICO = [
+        ('SUBSTITUICAO', 'Substituição (Troca de Peça)'),
+        ('INSTALACAO', 'Instalação (Nova Peça)'),
+        ('REGULAGEM', 'Regulagem'),
+        ('LUBRIFICACAO', 'Lubrificação'),
+        ('CALIBRACAO', 'Calibração'),
+        ('INSPECAO', 'Inspeção / Rotina'),
+        ('CORRETIVA', 'Reparo Corretivo'),
+    ]
+
+    # --- 1. IDENTIFICAÇÃO ---
     data_ocorrencia = models.DateField(verbose_name="Data da Ocorrência")
+    motor = models.ForeignKey(Motor, on_delete=models.CASCADE, related_name='manutencoes')
+    
+    # MUDAÇA IMPORTANTE: De 'posicao' (ForeignKey) para 'componentes' (M2M)
+    # Isso permite selecionar VÁRIOS itens de uma vez.
+    componentes = models.ManyToManyField(
+        PosicaoComponente, 
+        related_name='historico_manutencao',
+        verbose_name="Equipamentos (Componentes)"
+    )
+
+    # --- 2. DADOS OPERACIONAIS ---
+    horimetro_na_execucao = models.IntegerField(
+        verbose_name="Horas de Operação (Atual)", 
+        help_text="Atualizará o horímetro de todos os componentes selecionados."
+    )
+    arranques_na_execucao = models.IntegerField(
+        verbose_name="Nº de Arranques (Opcional)", 
+        null=True, blank=True,
+        help_text="Deixe em branco se não quiser alterar."
+    )
     tipo_atividade = models.CharField(
         max_length=50, 
-        choices=[('CORRETIVA', 'Corretiva'), ('PREVENTIVA', 'Preventiva')],
-        default='PREVENTIVA'
+        choices=TIPOS_SERVICO,
+        default='INSPECAO',
+        verbose_name="Tipo de Serviço"
     )
+
+    # --- 3. ESTOQUE ---
+    item_estoque = models.ForeignKey(
+        EstoqueItem, 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True,
+        verbose_name="Item de Estoque (Para Baixa)"
+    )
+    quantidade_utilizada = models.IntegerField(
+        default=0, 
+        verbose_name="Quantidade a Baixar"
+    )
+
+    # --- 4. DETALHES ---
+    responsavel = models.CharField(max_length=100, blank=True, null=True, verbose_name="Responsável")
+    observacao = models.TextField(blank=True, null=True, verbose_name="Detalhes / Observações")
+    novo_serial_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="Novo Serial (Se houver)")
     
-    # --- CAMPOS FALTANTES NO BANCO (Mantenha COMENTADO agora) ---
-    # horimetro_na_execucao = models.IntegerField(verbose_name="Horímetro na Execução", default=0)
-    # responsavel = models.CharField(max_length=100, blank=True, null=True, verbose_name="Responsável")
-    # observacao = models.TextField(blank=True, null=True, verbose_name="Observações")
-    # novo_serial_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="Novo Nº de Série")
-    # created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = "Registro de Manutenção"
-        verbose_name_plural = "Registros de Manutenção"
+        verbose_name = "Registro de Ocorrência"
+        verbose_name_plural = "Livro de Ocorrências"
         ordering = ['-data_ocorrencia']
 
     def __str__(self):
-        return f"{self.data_ocorrencia} - {self.motor}"
-
-# --- PROXIES (Necessários para o Admin) ---
-class ComponenteGeral(PosicaoComponente):
-    class Meta: proxy = True; verbose_name = "Geral"
-class SistemaOleo(PosicaoComponente):
-    class Meta: proxy = True; verbose_name = "Óleo"
-class Periferico(PosicaoComponente):
-    class Meta: proxy = True; verbose_name = "Periférico"
+        return f"{self.data_ocorrencia} - {self.motor} ({self.get_tipo_atividade_display()})"

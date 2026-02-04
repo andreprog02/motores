@@ -5,11 +5,14 @@ from .models import (
     MenuCilindros, MenuCabecotes, MenuOutros
 )
 
-# --- BASE ---
+# --- BASE (Configuração Compartilhada) ---
 class ComponenteBaseAdmin(admin.ModelAdmin):
-    list_display = ('nome', 'peca_instalada', 'motor', 'horas_uso_atual')
+    # AQUI ESTÁ A MUDANÇA NAS COLUNAS:
+    list_display = ('motor', 'nome', 'data_instalacao', 'horas_uso_atual')
+    
+    # Filtros e Busca
     list_filter = ('motor',)
-    search_fields = ('nome', 'serial_number')
+    search_fields = ('nome', 'serial_number', 'motor__nome')
     autocomplete_fields = ['peca_instalada']
     
     def get_queryset(self, request):
@@ -50,7 +53,13 @@ class OutrosAdmin(ComponenteBaseAdmin):
 @admin.register(GrupoComponente)
 class GrupoComponenteAdmin(admin.ModelAdmin):
     list_display = ('id', 'nome', 'motor', 'slug', 'ordem')
-    list_display_links = ('id',) # Link no ID para permitir edição do nome na lista
+    list_display_links = ('id',) 
     list_filter = ('motor',)
     list_editable = ('nome', 'ordem')
     readonly_fields = ('slug',)
+
+# --- BUSCA TÉCNICA (Oculto no menu, mas permite autocomplete) ---
+@admin.register(PosicaoComponente)
+class PosicaoComponenteBuscaAdmin(admin.ModelAdmin):
+    search_fields = ('nome', 'serial_number')
+    def has_module_permission(self, request): return False

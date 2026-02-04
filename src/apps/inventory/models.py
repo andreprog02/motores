@@ -90,7 +90,6 @@ class EstoqueItem(TenantAwareModel):
     local = models.ForeignKey(LocalEstoque, on_delete=models.CASCADE)
     
     # --- MUDANÇA AQUI: DecimalField -> IntegerField ---
-    # Isso remove o ",00" e aceita apenas números inteiros (1, 10, 500)
     quantidade = models.IntegerField(default=0, help_text="Quantidade física (Inteiro)")
     minimo_seguranca = models.IntegerField(default=0)
 
@@ -101,3 +100,28 @@ class EstoqueItem(TenantAwareModel):
 
     def __str__(self):
         return f"{self.catalogo.nome} em {self.local.nome}: {self.quantidade}"
+
+# --- NOVO MODELO: ADICIONE ISTO AO FINAL DO ARQUIVO ---
+class MovimentoEstoque(TenantAwareModel):
+    """
+    Registra o histórico de entradas e saídas do estoque.
+    """
+    TIPO_MOVIMENTO = [
+        ('ENTRADA', 'Entrada (Compra/Retorno)'),
+        ('SAIDA', 'Saída (Uso/Perda)'),
+        ('AJUSTE', 'Ajuste de Inventário'),
+    ]
+    
+    item = models.ForeignKey(EstoqueItem, on_delete=models.CASCADE, related_name='movimentos')
+    tipo = models.CharField(max_length=20, choices=TIPO_MOVIMENTO)
+    quantidade = models.IntegerField()
+    data_movimento = models.DateTimeField(auto_now_add=True)
+    origem = models.CharField(max_length=100, help_text="Ex: Manutenção #123", blank=True, null=True)
+    
+    class Meta:
+        verbose_name = "Movimento de Estoque"
+        verbose_name_plural = "Histórico de Movimentações"
+        ordering = ['-data_movimento']
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} - {self.quantidade} un"
