@@ -1,54 +1,56 @@
 from django.contrib import admin
-from django.db.models import Q
-from src.apps.core.admin import TenantModelAdmin
-from .models import PosicaoComponente, SistemaOleo, Periferico
+from .models import (
+    GrupoComponente, PosicaoComponente, 
+    MenuOleo, MenuFiltros, MenuPerifericos, MenuIgnicao, 
+    MenuCilindros, MenuCabecotes, MenuOutros
+)
 
-# --- 1. LISTA GERAL ---
-@admin.register(PosicaoComponente)
-class PosicaoAdmin(TenantModelAdmin):
-    list_display = ('nome', 'motor', 'peca_instalada', 'exibir_horas_uso')
+# --- BASE ---
+class ComponenteBaseAdmin(admin.ModelAdmin):
+    list_display = ('nome', 'peca_instalada', 'motor', 'horas_uso_atual')
     list_filter = ('motor',)
     search_fields = ('nome', 'serial_number')
     autocomplete_fields = ['peca_instalada']
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        # Esconde Óleo e Periféricos desta lista geral
-        exclude_terms = ["Óleo", "Turbo", "Blowby", "Arranque", "Intercooler", "Alternador", "Damper", "Compensador", "Resistência", "Filtro de Ar", "Filtro de Gás", "Pré-Filtro", "Bypass"]
-        for term in exclude_terms:
-            qs = qs.exclude(nome__icontains=term)
-        return qs
-
-    def exibir_horas_uso(self, obj): return f"{obj.horas_uso_atual} h"
-
-# --- 2. ÓLEO ---
-@admin.register(SistemaOleo)
-class SistemaOleoAdmin(TenantModelAdmin):
-    list_display = ('nome', 'motor', 'serial_number', 'data_instalacao', 'horas_uso_display')
-    list_filter = ('motor',)
-    search_fields = ('nome', 'serial_number')
     
     def get_queryset(self, request):
-        return super().get_queryset(request).filter(nome__icontains="Óleo")
-    
-    def has_add_permission(self, request): return False
-    @admin.display(description="Horas Uso")
-    def horas_uso_display(self, obj): return f"{obj.horas_uso_atual} h"
+        return super().get_queryset(request)
 
-# --- 3. PERIFÉRICOS ---
-@admin.register(Periferico)
-class PerifericoAdmin(TenantModelAdmin):
-    list_display = ('nome', 'motor', 'serial_number', 'horas_uso_display')
-    list_filter = ('motor',)
-    search_fields = ('nome', 'serial_number')
+# --- MENUS ESPECÍFICOS ---
+@admin.register(MenuOleo)
+class OleoAdmin(ComponenteBaseAdmin):
+    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='oleo')
 
+@admin.register(MenuFiltros)
+class FiltrosAdmin(ComponenteBaseAdmin):
+    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='filtros')
+
+@admin.register(MenuPerifericos)
+class PerifericosAdmin(ComponenteBaseAdmin):
+    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='perifericos')
+
+@admin.register(MenuIgnicao)
+class IgnicaoAdmin(ComponenteBaseAdmin):
+    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='ignicao')
+
+@admin.register(MenuCilindros)
+class CilindrosAdmin(ComponenteBaseAdmin):
+    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='cilindros')
+
+@admin.register(MenuCabecotes)
+class CabecotesAdmin(ComponenteBaseAdmin):
+    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='cabecotes')
+
+@admin.register(MenuOutros)
+class OutrosAdmin(ComponenteBaseAdmin):
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        terms = ["Turbo", "Blowby", "Arranque", "Intercooler", "Alternador", "Damper", "Compensador", "Resistência", "Filtro de Ar", "Filtro de Gás", "Pré-Filtro", "Bypass"]
-        query = Q()
-        for term in terms: query |= Q(nome__icontains=term)
-        return qs.filter(query)
+        slugs_padrao = ['oleo', 'filtros', 'perifericos', 'ignicao', 'cilindros', 'cabecotes']
+        return super().get_queryset(request).exclude(grupo__slug__in=slugs_padrao)
 
-    def has_add_permission(self, request): return False
-    @admin.display(description="Horas Uso")
-    def horas_uso_display(self, obj): return f"{obj.horas_uso_atual} h"
+# --- GERENCIADOR DE CATEGORIAS ---
+@admin.register(GrupoComponente)
+class GrupoComponenteAdmin(admin.ModelAdmin):
+    list_display = ('id', 'nome', 'motor', 'slug', 'ordem')
+    list_display_links = ('id',) # Link no ID para permitir edição do nome na lista
+    list_filter = ('motor',)
+    list_editable = ('nome', 'ordem')
+    readonly_fields = ('slug',)
