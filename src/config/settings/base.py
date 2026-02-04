@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'src.apps.assets',
     'src.apps.maintenance',
     'src.apps.dashboard',
+    'src.apps.components',
 ]
 
 MIDDLEWARE = [

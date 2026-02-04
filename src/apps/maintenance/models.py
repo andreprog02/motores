@@ -1,50 +1,40 @@
 from django.db import models
 from src.apps.core.models import TenantAwareModel
-from src.apps.assets.models import Motor, PosicaoComponente
-from src.apps.inventory.models import EstoqueItem
-from django.conf import settings
+from src.apps.assets.models import Motor
+from src.apps.components.models import PosicaoComponente
 
 class RegistroManutencao(TenantAwareModel):
-    TIPO_ATIVIDADE = [
-        ('PREVENTIVA', 'Manutenção Preventiva'),
-        ('CORRETIVA', 'Manutenção Corretiva'),
-        ('LUBRIFICACAO', 'Lubrificação / Engraxamento'),
-        ('TROCA', 'Substituição de Peça'),
-        ('INSPECAO', 'Inspeção de Rotina'),
-    ]
-
-    responsavel = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
-    motor = models.ForeignKey(Motor, on_delete=models.CASCADE)
-    posicao = models.ForeignKey(PosicaoComponente, on_delete=models.CASCADE, verbose_name="Posição / Componente")
+    motor = models.ForeignKey(Motor, on_delete=models.CASCADE, related_name='manutencoes')
+    posicao = models.ForeignKey(PosicaoComponente, on_delete=models.CASCADE, related_name='historico_manutencao')
     
-    tipo_atividade = models.CharField(max_length=20, choices=TIPO_ATIVIDADE)
-    
-    data_ocorrencia = models.DateField(default=models.functions.Now)
-    
-    # --- MUDANÇA AQUI: De Float/Decimal para IntegerField ---
-    horimetro_na_execucao = models.IntegerField(
-        verbose_name="Horímetro no momento",
-        help_text="Quantas horas totais o motor tinha nesta data?"
+    data_ocorrencia = models.DateField(verbose_name="Data da Ocorrência")
+    tipo_atividade = models.CharField(
+        max_length=50, 
+        choices=[('CORRETIVA', 'Corretiva'), ('PREVENTIVA', 'Preventiva')],
+        default='PREVENTIVA'
     )
-
-    # Peças
-    item_estoque_utilizado = models.ForeignKey(
-        EstoqueItem, 
-        on_delete=models.SET_NULL, 
-        null=True, blank=True,
-        verbose_name="Peça do Estoque",
-        help_text="Selecione a peça que foi consumida"
-    )
-    novo_serial_number = models.CharField(max_length=100, blank=True, null=True)
     
-    observacao = models.TextField(blank=True)
+    # --- Campos do Livro de Registro ---
+    horimetro_na_execucao = models.IntegerField(verbose_name="Horímetro na Execução", default=0)
+    responsavel = models.CharField(max_length=100, blank=True, null=True, verbose_name="Responsável")
+    observacao = models.TextField(blank=True, null=True, verbose_name="Observações")
+    novo_serial_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="Novo Nº de Série (Se houve troca)")
 
+    # --- CAMPO DESATIVADO TEMPORARIAMENTE (Causa do Erro) ---
+    # O Django não está achando o modelo 'ItemEstoque'. Descomente quando criar o Inventory.
+    # item_estoque_utilizado = models.ForeignKey(
+    #     'inventory.ItemEstoque', 
+    #     on_delete=models.SET_NULL, 
+    #     null=True, blank=True,
+    #     verbose_name="Item de Estoque Utilizado"
+    # )
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Registro de Manutenção"
-        verbose_name_plural = "Livro de Ocorrências"
+        verbose_name_plural = "Registros de Manutenção"
         ordering = ['-data_ocorrencia']
 
     def __str__(self):
-        return f"{self.data_ocorrencia} - {self.motor.nome} - {self.tipo_atividade}"
+        return f"{self.data_ocorrencia} - {self.motor} - {self.posicao}"

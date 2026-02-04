@@ -10,4 +10,5 @@ class AssetsConfig(AppConfig):
 
     def ready(self):
         # Isso ativa a automação (Signals) quando o app inicia
-        import src.apps.assets.signals
+        #import src.apps.assets.signals
+        pass

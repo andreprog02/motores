@@ -1,6 +1,8 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from .models import Motor, PosicaoComponente
+# Importa Motor de Assets e PosicaoComponente daqui de Components
+from src.apps.assets.models import Motor
+from src.apps.components.models import PosicaoComponente
 
 @receiver(post_save, sender=Motor)
 def criar_componentes_automaticos(sender, instance, created, **kwargs):
@@ -15,12 +17,11 @@ def criar_componentes_automaticos(sender, instance, created, **kwargs):
                 defaults={'tenant': instance.tenant}
             )
 
-    # 1. Categoria Óleo
+    # Lógica de criação (igual ao anterior)
     garantir_slots("Óleo do Motor (Cárter)", 1)
     garantir_slots("Filtro de Óleo", instance.qtd_filtros_oleo)
     garantir_slots("Trocador de Óleo", instance.qtd_trocadores_oleo)
-
-    # 2. Categoria Periféricos (Lista solicitada)
+    
     garantir_slots("Turbo", instance.qtd_turbos)
     garantir_slots("Blowby", instance.qtd_blowby)
     garantir_slots("Motor de Arranque", instance.qtd_motores_partida)
@@ -34,7 +35,6 @@ def criar_componentes_automaticos(sender, instance, created, **kwargs):
     garantir_slots("Pré-Filtro de Ar", instance.qtd_pre_filtros_ar)
     garantir_slots("Bypass", instance.qtd_bypass)
 
-    # 3. Outros (Cilindros, Ignição, etc)
     if instance.qtd_cilindros:
         for i in range(1, instance.qtd_cilindros + 1):
             PosicaoComponente.objects.get_or_create(motor=instance, nome=f"Cilindro {i:02d} - Vela", defaults={'tenant': instance.tenant})
