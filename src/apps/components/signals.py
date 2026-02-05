@@ -20,9 +20,18 @@ def criar_estrutura_inicial_motor(sender, instance, created, **kwargs):
         itens = []
         for i in range(1, quantidade + 1):
             nome_final = f"{nome_base} #{i}" if quantidade > 1 else nome_base
+            
+            # Adicionamos o item à lista com os campos de ordenação preenchidos
             itens.append(PosicaoComponente(
-                tenant=instance.tenant, motor=instance, grupo=grupo_obj,
-                nome=nome_final, hora_motor_instalacao=instance.horas_totais
+                tenant=instance.tenant, 
+                motor=instance, 
+                grupo=grupo_obj,
+                nome=nome_final, 
+                hora_motor_instalacao=instance.horas_totais,
+                
+                # --- PREENCHIMENTO DA ORDENAÇÃO ---
+                nome_base=nome_base,  # Ex: "Cabeçote"
+                numero=i              # Ex: 1, 2, 10...
             ))
         PosicaoComponente.objects.bulk_create(itens)
 

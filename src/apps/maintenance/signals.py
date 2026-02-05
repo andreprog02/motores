@@ -1,7 +1,8 @@
-from django.db.models.signals import post_save, m2m_changed
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import RegistroManutencao
 
+# --- Mantendo sua função auxiliar EXATAMENTE como você pediu ---
 def _atualizar_dados_componente(registro, componente):
     """
     Função auxiliar que aplica os dados da manutenção ao componente.
@@ -34,7 +35,10 @@ def _atualizar_dados_componente(registro, componente):
 def manutencao_post_save(sender, instance, created, **kwargs):
     """
     1. Baixa de Estoque (Apenas na Criação)
-    2. Atualização de Componentes (Apenas na Edição - quando created=False)
+    2. Atualização de Componentes (Criação e Edição)
+    
+    Nota: Como mudamos para ForeignKey, não precisamos mais do m2m_changed.
+    O campo 'posicao' já está disponível aqui mesmo.
     """
     print(f"SINAL POST_SAVE DISPARADO. Criado: {created}")
 
@@ -45,29 +49,18 @@ def manutencao_post_save(sender, instance, created, **kwargs):
         estoque.quantidade -= instance.quantidade_utilizada
         estoque.save()
 
-    # --- LÓGICA DE COMPONENTES (Só na edição) ---
-    # Se estamos EDITANDO, a relação M2M já existe, então podemos iterar.
-    # Se estamos CRIANDO, a lista instance.componentes.all() estaria vazia aqui.
-    if not created and instance.tipo_atividade in ['SUBSTITUICAO', 'INSTALACAO']:
-        for comp in instance.componentes.all():
-            _atualizar_dados_componente(instance, comp)
-
-
-@receiver(m2m_changed, sender=RegistroManutencao.componentes.through)
-def manutencao_componentes_changed(sender, instance, action, pk_set, **kwargs):
-    """
-    Captura o momento exato em que os componentes são adicionados ao registro.
-    Crucial para a tela de CRIAÇÃO do Admin.
-    """
-    # Só roda se estiver ADICIONANDO itens e for troca/instalação
-    if action == 'post_add' and instance.tipo_atividade in ['SUBSTITUICAO', 'INSTALACAO']:
-        print(f"SINAL M2M DISPARADO (Ação: {action})")
+    # --- LÓGICA DE COMPONENTES ---
+    # Aqui unificamos o que antes ficava dividido entre post_save (edição) e m2m_changed (criação).
+    # Agora roda sempre, garantindo que o componente seja atualizado.
+    
+    if instance.tipo_atividade in ['SUBSTITUICAO', 'INSTALACAO']:
+        # Pegamos o componente diretamente (antes era via lista)
+        comp = instance.posicao
+        _atualizar_dados_componente(instance, comp)
         
-        # Importação local para evitar ciclo
-        from src.apps.components.models import PosicaoComponente
-        
-        # Pega os objetos reais baseados nos IDs selecionados (pk_set)
-        componentes_afetados = PosicaoComponente.objects.filter(pk__in=pk_set)
-        
-        for comp in componentes_afetados:
-            _atualizar_dados_componente(instance, comp)
+    elif instance.tipo_atividade == 'LUBRIFICACAO':
+        # Mantendo lógica extra se houver
+        comp = instance.posicao
+        comp.ultimo_engraxamento = instance.data_ocorrencia
+        comp.save()
+        print(f"   > Lubrificação registrada em: {instance.data_ocorrencia}")

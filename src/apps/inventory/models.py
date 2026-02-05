@@ -89,7 +89,7 @@ class EstoqueItem(TenantAwareModel):
     catalogo = models.ForeignKey(CatalogoPeca, on_delete=models.CASCADE, related_name='estoques')
     local = models.ForeignKey(LocalEstoque, on_delete=models.CASCADE)
     
-    # --- MUDANÇA AQUI: DecimalField -> IntegerField ---
+    # Quantidade inteira
     quantidade = models.IntegerField(default=0, help_text="Quantidade física (Inteiro)")
     minimo_seguranca = models.IntegerField(default=0)
 
@@ -101,11 +101,22 @@ class EstoqueItem(TenantAwareModel):
     def __str__(self):
         return f"{self.catalogo.nome} em {self.local.nome}: {self.quantidade}"
 
-# --- NOVO MODELO: ADICIONE ISTO AO FINAL DO ARQUIVO ---
+# --- TABELA DE SERIAIS INDIVIDUAIS (Filhos do EstoqueItem) ---
+class SerialPeca(TenantAwareModel):
+    item_estoque = models.ForeignKey(EstoqueItem, on_delete=models.CASCADE, related_name='seriais')
+    serial_number = models.CharField(max_length=100, verbose_name="Nº de Série")
+    data_entrada = models.DateField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = "Serial Individual"
+        verbose_name_plural = "Seriais em Estoque"
+        unique_together = ('item_estoque', 'serial_number') 
+
+    def __str__(self):
+        return f"SN: {self.serial_number}"
+
+# --- HISTÓRICO DE MOVIMENTAÇÃO ---
 class MovimentoEstoque(TenantAwareModel):
-    """
-    Registra o histórico de entradas e saídas do estoque.
-    """
     TIPO_MOVIMENTO = [
         ('ENTRADA', 'Entrada (Compra/Retorno)'),
         ('SAIDA', 'Saída (Uso/Perda)'),

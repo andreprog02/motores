@@ -19,14 +19,16 @@ class RegistroManutencao(TenantAwareModel):
     data_ocorrencia = models.DateField(verbose_name="Data da Ocorrência")
     motor = models.ForeignKey(Motor, on_delete=models.CASCADE, related_name='manutencoes')
     
-    # MUDAÇA IMPORTANTE: De 'posicao' (ForeignKey) para 'componentes' (M2M)
-    # Isso permite selecionar VÁRIOS itens de uma vez.
-    componentes = models.ManyToManyField(
+    # ALTERADO: Voltamos para ForeignKey (1 para 1)
+    # Cada linha no banco será referente a UMA peça específica.
+    posicao = models.ForeignKey(
         PosicaoComponente, 
+        on_delete=models.CASCADE,
         related_name='historico_manutencao',
-        verbose_name="Equipamentos (Componentes)"
+        verbose_name="Componente Afetado"
     )
 
+    
     # --- 2. DADOS OPERACIONAIS ---
     horimetro_na_execucao = models.IntegerField(
         verbose_name="Horas de Operação (Atual)", 

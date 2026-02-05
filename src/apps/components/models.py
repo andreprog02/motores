@@ -25,6 +25,12 @@ class PosicaoComponente(TenantAwareModel):
     grupo = models.ForeignKey(GrupoComponente, related_name='itens', on_delete=models.SET_NULL, null=True, blank=True)
     
     nome = models.CharField(max_length=200)
+
+    # --- NOVOS CAMPOS PARA ORDENAÇÃO ---
+    nome_base = models.CharField(max_length=100, blank=True, null=True, verbose_name="Tipo do Item")
+    numero = models.PositiveIntegerField(default=0, verbose_name="Sequência")
+    # -----------------------------------
+
     peca_instalada = models.ForeignKey(CatalogoPeca, on_delete=models.SET_NULL, null=True, blank=True)
     serial_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="Nº de Série")
     
@@ -41,7 +47,8 @@ class PosicaoComponente(TenantAwareModel):
     ultimo_engraxamento = models.DateField(null=True, blank=True)
 
     class Meta:
-        ordering = ['grupo__ordem', 'nome']
+        # AQUI ESTÁ A MÁGICA: Agrupa por tipo (nome_base) e ordena por número
+        ordering = ['grupo__ordem', 'nome_base', 'numero'] 
         verbose_name = "Componente"
         verbose_name_plural = "Todos os Componentes"
 
@@ -91,7 +98,6 @@ class MenuCabecotes(PosicaoComponente):
         verbose_name = "Item de Cabeçote"
         verbose_name_plural = "6. Cabeçotes"
 
-# Ajustei a numeração para 7
 class MenuOutros(PosicaoComponente):
     class Meta:
         proxy = True
