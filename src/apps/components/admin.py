@@ -1,85 +1,87 @@
 from django.contrib import admin
-from src.apps.core.admin import TenantModelAdmin 
+from django.utils.html import format_html
+from django.urls import reverse
+from src.apps.core.admin import TenantModelAdmin
 from .models import (
-    GrupoComponente, PosicaoComponente, 
-    MenuOleo, MenuFiltros, MenuPerifericos, MenuIgnicao, 
-    MenuCilindros, MenuCabecotes, MenuOutros, PlanoPreventiva
+    GrupoComponente, 
+    PosicaoComponente, 
+    PlanoPreventiva,
+    MenuOleo, MenuFiltros, MenuPerifericos, 
+    MenuIgnicao, MenuCilindros, MenuCabecotes, MenuOutros
 )
 
-# --- 1. O INLINE (CORRIGIDO) ---
+# --- 1. Inline para cadastrar preventivas dentro do Item ---
 class PlanoPreventivaInline(admin.TabularInline):
     model = PlanoPreventiva
-    extra = 1
-    # CORREÇÃO CRÍTICA:
-    # Removemos 'intervalo_horas' e 'intervalo_meses' (que não existem mais)
-    # Adicionamos 'unidade' e 'intervalo_valor'
-    fields = ('tarefa', 'tipo_servico', 'unidade', 'intervalo_valor')
+    extra = 0
+    fields = ('tarefa', 'tipo_servico', 'unidade', 'intervalo_valor', 'ultima_execucao_data', 'ultima_execucao_valor')
+    classes = ('collapse',) # Deixa recolhido para não poluir
 
-# --- 2. BASE COMPARTILHADA ---
-class ComponenteBaseAdmin(TenantModelAdmin): 
-    # Colunas da tabela
-    list_display = ('motor', 'nome', 'data_instalacao', 'horas_uso_atual', 'exibir_alertas')
+# --- 2. Configuração Base para todos os Menus ---
+class ComponenteBaseAdmin(TenantModelAdmin):
+    list_display = ('nome', 'motor', 'horas_uso_atual', 'exibir_alertas_visual', 'acessar_dashboard')
+    list_filter = ('motor', 'grupo')
+    search_fields = ('nome', 'serial_number')
     
-    # Filtros e Busca
-    list_filter = ('motor',)
-    search_fields = ('nome', 'serial_number', 'motor__nome')
-    autocomplete_fields = ['peca_instalada']
-    
-    inlines = [PlanoPreventivaInline] 
-    
-    def get_queryset(self, request):
-        # Otimização para trazer as preventivas junto
-        return super().get_queryset(request).prefetch_related('planos_preventiva')
+    # Adiciona a tabelinha de preventivas na tela de edição também
+    inlines = [PlanoPreventivaInline]
 
-    def exibir_alertas(self, obj):
+    # --- O BOTÃO MÁGICO QUE VOCÊ QUERIA ---
+    def acessar_dashboard(self, obj):
+        # Gera o link para a página que criamos (posicaocomponente_detail)
+        url = reverse('components:posicaocomponente_detail', args=[obj.id])
+        return format_html(
+            '<a class="button" style="background-color: #28a745; color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold;" href="{}">📊 Ver Status / Preventivas</a>',
+            url
+        )
+    acessar_dashboard.short_description = "Painel de Manutenção"
+    acessar_dashboard.allow_tags = True
+
+    # Coluna de Alertas Visuais (Bolinhas Coloridas na lista)
+    def exibir_alertas_visual(self, obj):
         alertas = obj.status_preventivas
         if not alertas:
-            return "✅ Em dia"
-        return " ⚠️ ".join(alertas)
-    exibir_alertas.short_description = "Status de Manutenção"
+            return format_html('<span style="color: green;">✔ Em dia</span>')
+        
+        html = ""
+        for alerta in alertas:
+            cor = "red" if "VENCIDO" in alerta else "orange"
+            html += f'<div style="color: {cor}; font-weight: bold; font-size: 11px;">• {alerta}</div>'
+        return format_html(html)
+    exibir_alertas_visual.short_description = "Situação Atual"
 
-# --- 3. MENUS ESPECÍFICOS ---
+# --- 3. Registro dos Menus (Proxies) ---
+
 @admin.register(MenuOleo)
-class OleoAdmin(ComponenteBaseAdmin):
-    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='oleo')
+class MenuOleoAdmin(ComponenteBaseAdmin):
+    pass
 
 @admin.register(MenuFiltros)
-class FiltrosAdmin(ComponenteBaseAdmin):
-    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='filtros')
+class MenuFiltrosAdmin(ComponenteBaseAdmin):
+    pass
 
 @admin.register(MenuPerifericos)
-class PerifericosAdmin(ComponenteBaseAdmin):
-    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='perifericos')
+class MenuPerifericosAdmin(ComponenteBaseAdmin):
+    pass
 
 @admin.register(MenuIgnicao)
-class IgnicaoAdmin(ComponenteBaseAdmin):
-    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='ignicao')
+class MenuIgnicaoAdmin(ComponenteBaseAdmin):
+    pass
 
 @admin.register(MenuCilindros)
-class CilindrosAdmin(ComponenteBaseAdmin):
-    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='cilindros')
+class MenuCilindrosAdmin(ComponenteBaseAdmin):
+    pass
 
 @admin.register(MenuCabecotes)
-class CabecotesAdmin(ComponenteBaseAdmin):
-    def get_queryset(self, request): return super().get_queryset(request).filter(grupo__slug='cabecotes')
+class MenuCabecotesAdmin(ComponenteBaseAdmin):
+    pass
 
 @admin.register(MenuOutros)
-class OutrosAdmin(ComponenteBaseAdmin):
-    def get_queryset(self, request):
-        slugs_padrao = ['oleo', 'filtros', 'perifericos', 'ignicao', 'cilindros', 'cabecotes']
-        return super().get_queryset(request).exclude(grupo__slug__in=slugs_padrao)
+class MenuOutrosAdmin(ComponenteBaseAdmin):
+    pass
 
-# --- 4. GERENCIADOR DE CATEGORIAS ---
+# --- 4. Outros Cadastros ---
 @admin.register(GrupoComponente)
-class GrupoComponenteAdmin(TenantModelAdmin): 
-    list_display = ('id', 'nome', 'motor', 'slug', 'ordem')
-    list_display_links = ('id',) 
+class GrupoComponenteAdmin(TenantModelAdmin):
+    list_display = ('nome', 'motor', 'ordem')
     list_filter = ('motor',)
-    list_editable = ('nome', 'ordem')
-    readonly_fields = ('slug',)
-
-# --- 5. BUSCA TÉCNICA ---
-@admin.register(PosicaoComponente)
-class PosicaoComponenteBuscaAdmin(ComponenteBaseAdmin): 
-    search_fields = ('nome', 'serial_number')
-    def has_module_permission(self, request): return False

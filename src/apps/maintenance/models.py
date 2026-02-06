@@ -13,6 +13,7 @@ class RegistroManutencao(TenantAwareModel):
         ('CALIBRACAO', 'Calibração'),
         ('INSPECAO', 'Inspeção / Rotina'),
         ('CORRETIVA', 'Reparo Corretivo'),
+        ('LIMPEZA', 'Limpeza'),
     ]
 
     # --- 1. IDENTIFICAÇÃO ---
