@@ -35,17 +35,33 @@
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
-                                Peça Instalada (Modelo)
+                                Dados da Peça Instalada
                             </div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                {% if object.peca_instalada %}
+                            
+                            {% if object.peca_instalada %}
+                                <div class="h5 mb-0 font-weight-bold text-gray-800">
                                     {{ object.peca_instalada.nome }}
-                                {% else %}
-                                    <span class="text-muted font-italic small">Não informado</span>
-                                {% endif %}
-                            </div>
-                            <div class="mt-2 small text-gray-600">
-                                Serial (SN): <strong>{{ object.serial_number|default:"--" }}</strong>
+                                </div>
+                                
+                                <div class="mt-2 text-dark" style="font-size: 0.9rem;">
+                                    <span class="d-block">
+                                        <strong>PN:</strong> {{ object.peca_instalada.codigo_fabricante|default:"-" }}
+                                    </span>
+                                    <span class="d-block">
+                                        <strong>Marca:</strong> {{ object.peca_instalada.fabricante.nome|default:"-" }}
+                                    </span>
+                                </div>
+                            {% else %}
+                                <div class="h5 mb-0 font-weight-bold text-gray-400 font-italic">
+                                    Vazio / Não informado
+                                </div>
+                            {% endif %}
+
+                            <div class="mt-2 pt-2 border-top small text-gray-600">
+                                Serial (SN): 
+                                <span class="badge badge-info text-white" style="font-size: 0.85rem;">
+                                    {{ object.serial_number|default:"Sem Serial" }}
+                                </span>
                             </div>
                         </div>
                         <div class="col-auto">
@@ -62,13 +78,18 @@
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
-                                Uso nesta Posição
+                                Tempo de Uso (Atual)
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">
                                 {{ object.horas_uso_atual|intcomma }} horas
                             </div>
                             <div class="mt-2 small text-gray-600">
-                                Instalado em: {{ object.data_instalacao|default:"--" }}
+                                <i class="far fa-calendar-alt mr-1"></i> 
+                                Instalado em: <strong>{{ object.data_instalacao|date:"d/m/Y"|default:"-" }}</strong>
+                            </div>
+                            <div class="small text-gray-600">
+                                <i class="fas fa-tachometer-alt mr-1"></i>
+                                No horímetro: {{ object.hora_motor_instalacao|intcomma }} h
                             </div>
                         </div>
                         <div class="col-auto">
@@ -134,7 +155,14 @@
                             <td class="align-middle">
                                 <div class="d-flex justify-content-between small font-weight-bold mb-1">
                                     <span>Rodou: {{ p.rodado }}</span>
-                                    <span class="text-{{ p.cor }}">Resta: {{ p.restante }}</span>
+                                    
+                                    <span class="text-{{ p.cor }}">
+                                        {% if p.status == 'VENCIDO' %}
+                                            <i class="fas fa-exclamation-circle"></i> {{ p.restante }}
+                                        {% else %}
+                                            Resta: {{ p.restante }}
+                                        {% endif %}
+                                    </span>
                                 </div>
                                 <div class="progress" style="height: 10px;">
                                     <div class="progress-bar bg-{{ p.cor }}" role="progressbar" 

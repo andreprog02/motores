@@ -83,7 +83,6 @@ class PosicaoComponente(TenantAwareModel):
     def status_preventivas(self):
         """
         Retorna uma lista simples de strings para alertas rápidos (ex: no Admin ou Listagem).
-        Reutiliza a lógica do método detalhado para evitar duplicidade de código.
         """
         detalhes = self.get_detalhes_preventivas()
         alertas = []
@@ -97,8 +96,8 @@ class PosicaoComponente(TenantAwareModel):
     # --- MÉTODO PRINCIPAL PARA O DASHBOARD (TABELA DINÂMICA) ---
     def get_detalhes_preventivas(self):
         """
-        Retorna uma lista detalhada de todos os planos para exibição em tabela.
-        Calcula prazos, restos, datas e status (Vencido/Atenção/Em dia).
+        Retorna uma lista detalhada de todos os planos.
+        Agora calcula valores negativos para mostrar 'Há quanto tempo' está vencido.
         """
         lista_status = []
         
@@ -115,7 +114,7 @@ class PosicaoComponente(TenantAwareModel):
                 
                 # Dados da Última Execução
                 'ultima_data': plano.ultima_execucao_data,
-                'ultimo_valor': plano.ultima_execucao_valor, # Horimetro ou Arranques na época
+                'ultimo_valor': plano.ultima_execucao_valor, 
                 
                 # Cálculos (Padrão)
                 'rodado': '-',
@@ -131,7 +130,6 @@ class PosicaoComponente(TenantAwareModel):
             # --- 1. Lógica para HORAS ---
             if plano.unidade == 'HORAS':
                 base = plano.ultima_execucao_valor
-                # Se nunca foi feito (0), considera a instalação do componente
                 if base == 0 and self.hora_motor_instalacao:
                     base = self.hora_motor_instalacao
                 
@@ -139,15 +137,21 @@ class PosicaoComponente(TenantAwareModel):
                 if uso < 0: uso = 0
                 
                 falta = plano.intervalo_valor - uso
-                
                 dados['rodado'] = f"{uso} h"
-                dados['restante'] = f"{max(0, falta)} h"
+                
+                # Lógica de Vencimento
+                if falta < 0:
+                    vencido = True
+                    dados['restante'] = f"Vencido há {abs(falta)} h"
+                else:
+                    dados['restante'] = f"{falta} h"
                 
                 if plano.intervalo_valor > 0:
                     dados['progresso_pct'] = (uso / plano.intervalo_valor) * 100
                 
-                if uso >= plano.intervalo_valor: vencido = True
-                elif uso >= (plano.intervalo_valor * 0.9): atencao = True
+                # Define atenção se não estiver vencido mas estiver perto
+                if not vencido and uso >= (plano.intervalo_valor * 0.9): 
+                    atencao = True
 
             # --- 2. Lógica para ARRANQUES ---
             elif plano.unidade == 'ARRANQUES':
@@ -159,15 +163,19 @@ class PosicaoComponente(TenantAwareModel):
                 if uso < 0: uso = 0
                 
                 falta = plano.intervalo_valor - uso
-
                 dados['rodado'] = f"{uso} part."
-                dados['restante'] = f"{max(0, falta)} part."
+                
+                if falta < 0:
+                    vencido = True
+                    dados['restante'] = f"Vencido há {abs(falta)} part."
+                else:
+                    dados['restante'] = f"{falta} part."
                 
                 if plano.intervalo_valor > 0:
                     dados['progresso_pct'] = (uso / plano.intervalo_valor) * 100
 
-                if uso >= plano.intervalo_valor: vencido = True
-                elif uso >= (plano.intervalo_valor * 0.9): atencao = True
+                if not vencido and uso >= (plano.intervalo_valor * 0.9): 
+                    atencao = True
 
             # --- 3. Lógica para TEMPO (DIAS/MESES) ---
             elif plano.unidade in ['DIAS', 'MESES']:
@@ -183,25 +191,36 @@ class PosicaoComponente(TenantAwareModel):
                 
                 falta_dias = limite_dias - dias_passados
                 
-                # Exibição Amigável
+                # Exibição Amigável de Rodado
                 if dias_passados > 30:
                     dados['rodado'] = f"{dias_passados // 30} meses"
                 else:
                     dados['rodado'] = f"{dias_passados} dias"
                 
-                dados['restante'] = f"{max(0, falta_dias)} dias"
+                # Lógica de Vencimento
+                if falta_dias < 0:
+                    vencido = True
+                    dias_vencidos = abs(falta_dias)
+                    if dias_vencidos > 30:
+                        dados['restante'] = f"Vencido há {dias_vencidos // 30} meses"
+                    else:
+                        dados['restante'] = f"Vencido há {dias_vencidos} dias"
+                else:
+                    dados['restante'] = f"{falta_dias} dias"
                 
                 if limite_dias > 0:
                     dados['progresso_pct'] = (dias_passados / limite_dias) * 100
 
-                if dias_passados >= limite_dias: vencido = True
-                elif dias_passados >= (limite_dias * 0.9): atencao = True
+                if not vencido and dias_passados >= (limite_dias * 0.9): 
+                    atencao = True
 
             # Ajuste Final de Status e Cores
             if vencido:
                 dados['status'] = 'VENCIDO'
                 dados['cor'] = 'danger' # Vermelho
-                dados['restante'] = '0 (Vencido)'
+                dados['progresso_pct'] = 100 # Barra cheia para layout
+                # Removemos a sobrescrita de 'restante' aqui para manter o texto "Vencido há..."
+                
             elif atencao:
                 dados['status'] = 'ATENÇÃO'
                 dados['cor'] = 'warning' # Amarelo

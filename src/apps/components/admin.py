@@ -1,6 +1,9 @@
+from django import forms
 from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
+from django.shortcuts import render
+from django.http import HttpResponseRedirect
 from src.apps.core.admin import TenantModelAdmin
 from .models import (
     GrupoComponente, 
@@ -17,6 +20,16 @@ class PlanoPreventivaInline(admin.TabularInline):
     fields = ('tarefa', 'tipo_servico', 'unidade', 'intervalo_valor', 'ultima_execucao_data', 'ultima_execucao_valor')
     classes = ('collapse',) # Deixa recolhido para não poluir
 
+# --- NOVO: Formulário para a Ação em Massa ---
+class PreventivaMassaForm(forms.ModelForm):
+    class Meta:
+        model = PlanoPreventiva
+        fields = ['tarefa', 'tipo_servico', 'unidade', 'intervalo_valor']
+        help_texts = {
+            'tipo_servico': 'Qual serviço no diário zera este contador?',
+            'intervalo_valor': 'Ex: 500 (se for Horas), 6 (se for Meses)'
+        }
+
 # --- 2. Configuração Base para todos os Menus ---
 class ComponenteBaseAdmin(TenantModelAdmin):
     list_display = ('nome', 'motor', 'horas_uso_atual', 'exibir_alertas_visual', 'acessar_dashboard')
@@ -25,6 +38,51 @@ class ComponenteBaseAdmin(TenantModelAdmin):
     
     # Adiciona a tabelinha de preventivas na tela de edição também
     inlines = [PlanoPreventivaInline]
+
+    # --- NOVA AÇÃO REGISTRADA ---
+    actions = ['adicionar_preventiva_em_massa']
+
+    # --- LÓGICA DA AÇÃO EM MASSA ---
+    @admin.action(description="➕ Adicionar Plano de Preventiva (Massa)")
+    def adicionar_preventiva_em_massa(self, request, queryset):
+        # Se o formulário foi enviado (Clicou em "Confirmar" na tela intermediária)
+        if 'apply' in request.POST:
+            form = PreventivaMassaForm(request.POST)
+            if form.is_valid():
+                tarefa = form.cleaned_data['tarefa']
+                tipo = form.cleaned_data['tipo_servico']
+                unidade = form.cleaned_data['unidade']
+                intervalo = form.cleaned_data['intervalo_valor']
+                
+                count = 0
+                for item in queryset:
+                    # Cria o plano para cada item selecionado
+                    # Usa o tenant do próprio item para garantir consistência
+                    tenant_id = item.tenant_id if hasattr(item, 'tenant_id') else request.user.tenant_id
+
+                    PlanoPreventiva.objects.create(
+                        tenant_id=tenant_id, 
+                        posicao=item,
+                        tarefa=tarefa,
+                        tipo_servico=tipo,
+                        unidade=unidade,
+                        intervalo_valor=intervalo,
+                        ultima_execucao_valor=0 # Começa zerado
+                    )
+                    count += 1
+                
+                self.message_user(request, f"Sucesso! Plano '{tarefa}' criado para {count} componentes.")
+                return HttpResponseRedirect(request.get_full_path())
+        
+        # Se é a primeira vez (Clicou na Ação), exibe o formulário intermediário
+        else:
+            form = PreventivaMassaForm()
+
+        return render(request, 'admin/components/adicionar_preventiva_massa.html', {
+            'itens': queryset,
+            'form': form,
+            'title': 'Definir Preventiva em Massa'
+        })
 
     # --- O BOTÃO MÁGICO QUE VOCÊ QUERIA ---
     def acessar_dashboard(self, obj):
