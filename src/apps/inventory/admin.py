@@ -1,6 +1,12 @@
 from django.contrib import admin
 from src.apps.core.admin import TenantModelAdmin
-from .models import CategoriaPeca, CatalogoPeca, EstoqueItem, MovimentoEstoque, SerialPeca
+from .models import CategoriaPeca, CatalogoPeca, EstoqueItem, MovimentoEstoque, SerialPeca, Fabricante
+
+@admin.register(Fabricante)
+class FabricanteAdmin(TenantModelAdmin):
+    list_display = ('nome', 'principal', 'site')
+    list_filter = ('principal',)
+    search_fields = ('nome',)
 
 @admin.register(CategoriaPeca)
 class CategoriaPecaAdmin(TenantModelAdmin):
@@ -9,15 +15,15 @@ class CategoriaPecaAdmin(TenantModelAdmin):
 
 @admin.register(CatalogoPeca)
 class CatalogoAdmin(TenantModelAdmin):
-    list_display = ('nome', 'codigo_fabricante', 'categoria', 'aplicacao_universal')
-    list_filter = ('categoria', 'aplicacao_universal')
-    search_fields = ('nome', 'codigo_fabricante')
+    list_display = ('nome', 'fabricante', 'codigo_fabricante', 'categoria', 'aplicacao_universal')
+    list_filter = ('categoria', 'fabricante', 'aplicacao_universal')
+    search_fields = ('nome', 'codigo_fabricante', 'fabricante__nome')
     
     filter_horizontal = ('modelos_compativeis',)
     
     fieldsets = (
         ('Dados Principais', {
-            'fields': ('nome', 'codigo_fabricante', 'categoria')
+            'fields': ('nome', 'fabricante', 'codigo_fabricante', 'categoria')
         }),
         ('Compatibilidade', {
             'fields': ('aplicacao_universal', 'modelos_compativeis'),
@@ -32,6 +38,24 @@ class CatalogoAdmin(TenantModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+    def get_changeform_initial_data(self, request):
+        """
+        Pré-seleciona o fabricante marcado como 'Principal' ao abrir o formulário de adição.
+        """
+        initial = super().get_changeform_initial_data(request)
+        
+        # Verifica se o usuário tem tenant vinculado
+        if hasattr(request.user, 'tenant'):
+            fabricante_padrao = Fabricante.objects.filter(
+                tenant=request.user.tenant, 
+                principal=True
+            ).first()
+            
+            if fabricante_padrao:
+                initial['fabricante'] = fabricante_padrao.pk
+        
+        return initial
 
 # --- CONFIGURAÇÃO DOS SERIAIS ---
 class SerialInline(admin.TabularInline):

@@ -12,13 +12,58 @@ class CategoriaPeca(TenantAwareModel):
     def __str__(self):
         return self.nome
 
+class Fabricante(TenantAwareModel):
+    nome = models.CharField(max_length=100)
+    site = models.URLField(blank=True, null=True)
+    
+    # Campo para definir se é o padrão
+    principal = models.BooleanField(
+        default=False, 
+        verbose_name="Fabricante Principal?",
+        help_text="Se marcado, aparecerá automaticamente selecionado ao criar uma nova peça."
+    )
+
+    class Meta:
+        verbose_name = "Fabricante"
+        verbose_name_plural = "Fabricantes"
+        ordering = ['nome']
+
+    def __str__(self):
+        return self.nome
+
+    def save(self, *args, **kwargs):
+        # Lógica: Se este for marcado como principal, desmarca os outros do mesmo Tenant
+        if self.principal:
+            Fabricante.objects.filter(
+                tenant=self.tenant, 
+                principal=True
+            ).exclude(pk=self.pk).update(principal=False)
+        super().save(*args, **kwargs)
+
 class CatalogoPeca(TenantAwareModel):
     """
     O 'DNA' da peça. Aqui definimos quanto tempo ela dura.
     O usuário não cadastra 'Vela' toda vez, ele puxa deste cadastro.
     """
     nome = models.CharField(max_length=200)
-    codigo_fabricante = models.CharField(max_length=100, blank=True, null=True)
+    
+    # --- CORREÇÃO AQUI: null=True adicionado ---
+    fabricante = models.ForeignKey(
+        Fabricante, 
+        on_delete=models.PROTECT, 
+        related_name='pecas',
+        verbose_name="Fabricante",
+        null=True,  # Permite que peças antigas fiquem sem fabricante por enquanto
+        blank=False # Obriga a selecionar um fabricante ao criar/editar no Admin
+    )
+    
+    codigo_fabricante = models.CharField(
+        max_length=100, 
+        blank=True, 
+        null=True,
+        verbose_name="Cód. da Peça (Part Number)"
+    )
+    
     categoria = models.ForeignKey(CategoriaPeca, on_delete=models.PROTECT)
     
     # --- LÓGICA DE COMPATIBILIDADE ---
@@ -67,10 +112,12 @@ class CatalogoPeca(TenantAwareModel):
     class Meta:
         verbose_name = "Catálogo de Peça (Mestre)"
         verbose_name_plural = "Catálogo de Peças (Mestre)"
+        # Removemos fabricante do unique_together por enquanto para evitar problemas com nulos
         unique_together = ('tenant', 'codigo_fabricante')
 
     def __str__(self):
-        return f"{self.nome} ({self.codigo_fabricante or 'S/N'})"
+        fab_nome = self.fabricante.nome if self.fabricante else "Genérico"
+        return f"{self.nome} - {fab_nome} ({self.codigo_fabricante or 'S/N'})"
 
 class LocalEstoque(TenantAwareModel):
     nome = models.CharField(max_length=100, help_text="Ex: Armário A, Filial SP, Container 2")
