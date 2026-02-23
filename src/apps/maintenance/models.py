@@ -1,6 +1,7 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 from src.apps.core.models import TenantAwareModel
-from src.apps.assets.models import Motor
+from src.apps.assets.models import Motor, Equipamento
 from src.apps.components.models import PosicaoComponente
 from src.apps.inventory.models import EstoqueItem
 
@@ -18,10 +19,23 @@ class RegistroManutencao(TenantAwareModel):
 
     # --- 1. IDENTIFICAÇÃO ---
     data_ocorrencia = models.DateField(verbose_name="Data da Ocorrência")
-    motor = models.ForeignKey(Motor, on_delete=models.CASCADE, related_name='manutencoes')
     
-    # ALTERADO: Voltamos para ForeignKey (1 para 1)
-    # Cada linha no banco será referente a UMA peça específica.
+    # ALTERADO: Motor agora é opcional
+    motor = models.ForeignKey(
+        Motor, 
+        on_delete=models.CASCADE, 
+        related_name='manutencoes',
+        null=True, blank=True
+    )
+    
+    # NOVO: Campo Equipamento
+    equipamento = models.ForeignKey(
+        Equipamento,
+        on_delete=models.CASCADE,
+        related_name='manutencoes',
+        null=True, blank=True
+    )
+    
     posicao = models.ForeignKey(
         PosicaoComponente, 
         on_delete=models.CASCADE,
@@ -29,7 +43,6 @@ class RegistroManutencao(TenantAwareModel):
         verbose_name="Componente Afetado"
     )
 
-    
     # --- 2. DADOS OPERACIONAIS ---
     horimetro_na_execucao = models.IntegerField(
         verbose_name="Horas de Operação (Atual)", 
@@ -71,5 +84,13 @@ class RegistroManutencao(TenantAwareModel):
         verbose_name_plural = "Livro de Ocorrências"
         ordering = ['-data_ocorrencia']
 
+    def clean(self):
+        # Validação para garantir que escolheu UM dos dois
+        if not self.motor and not self.equipamento:
+            raise ValidationError("Você deve selecionar um Motor OU um Equipamento.")
+        if self.motor and self.equipamento:
+            raise ValidationError("Selecione apenas um ativo (Motor ou Equipamento), não ambos.")
+
     def __str__(self):
-        return f"{self.data_ocorrencia} - {self.motor} ({self.get_tipo_atividade_display()})"
+        ativo = self.motor if self.motor else self.equipamento
+        return f"{self.data_ocorrencia} - {ativo} ({self.get_tipo_atividade_display()})"

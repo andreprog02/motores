@@ -15,12 +15,16 @@ from .models import (
 
 # --- 1. Inline para cadastrar preventivas dentro do Item ---
 class PlanoPreventivaInline(admin.TabularInline):
+    """
+    Permite adicionar os planos de manutenção (ex: Troca a cada 500h)
+    diretamente na tela da peça.
+    """
     model = PlanoPreventiva
-    extra = 1  # Mudei para 1 para facilitar a adição rápida
+    extra = 1
     fields = ('tarefa', 'tipo_servico', 'unidade', 'intervalo_valor', 'ultima_execucao_data', 'ultima_execucao_valor')
-    classes = ('collapse',) 
+    classes = ('collapse',) # Opcional: Deixa recolhido para economizar espaço
 
-# --- NOVO: Formulário para a Ação em Massa ---
+# --- 2. Formulário para a Ação em Massa ---
 class PreventivaMassaForm(forms.ModelForm):
     class Meta:
         model = PlanoPreventiva
@@ -30,20 +34,45 @@ class PreventivaMassaForm(forms.ModelForm):
             'intervalo_valor': 'Ex: 500 (se for Horas), 6 (se for Meses)'
         }
 
-# --- 2. Configuração Base (AGORA HÍBRIDA: MOTOR E EQUIPAMENTO) ---
+# --- 3. Configuração Base (Motor + Equipamento) ---
 class ComponenteBaseAdmin(TenantModelAdmin):
-    # Alterado: Trocamos 'motor' por 'get_ativo_pai' para mostrar o dono correto
+    # 'get_ativo_pai' substitui a coluna fixa de 'motor' para aceitar equipamentos
     list_display = ('nome', 'get_ativo_pai', 'horas_uso_atual', 'exibir_alertas_visual', 'acessar_dashboard')
     
-    # Alterado: Adicionado filtro por Equipamento
-    list_filter = ('motor', 'equipamento', 'grupo') 
+    # Filtros para ambos os tipos de ativo
+    list_filter = ('motor', 'equipamento', 'grupo', 'peca_instalada__categoria') 
     
     search_fields = ('nome', 'serial_number', 'motor__nome', 'equipamento__nome')
     
     inlines = [PlanoPreventivaInline]
     actions = ['adicionar_preventiva_em_massa']
 
-    # --- Coluna Inteligente: Mostra Motor ou Equipamento ---
+    # --- Organização Visual do Formulário ---
+    fieldsets = (
+        ('Vínculo e Localização', {
+            'fields': (
+                ('motor', 'equipamento'), # Exibe lado a lado
+                'grupo', 
+                'nome', 
+                'numero'
+            ),
+            'description': 'Selecione o Motor OU o Equipamento a que esta peça pertence.'
+        }),
+        ('Peça Instalada', {
+            'fields': ('peca_instalada', 'serial_number', 'data_instalacao')
+        }),
+        ('Contadores (Snapshot da Instalação)', {
+            'fields': ('hora_motor_instalacao', 'arranques_motor_instalacao'),
+            'classes': ('collapse',),
+            'description': 'Registra o horímetro do ativo no momento da troca.'
+        }),
+        ('Monitoramento', {
+            'fields': ('ultimo_engraxamento', 'ultima_medicao_vibracao'),
+            'classes': ('collapse',)
+        })
+    )
+
+    # --- Coluna Inteligente: Mostra Ícone do Pai ---
     def get_ativo_pai(self, obj):
         if obj.motor:
             return f"Ⓜ️ {obj.motor.nome}"
@@ -51,9 +80,35 @@ class ComponenteBaseAdmin(TenantModelAdmin):
             return f"⚙️ {obj.equipamento.nome}"
         return "-"
     get_ativo_pai.short_description = "Pertence a"
-    get_ativo_pai.admin_order_field = 'motor__nome'
+    get_ativo_pai.admin_order_field = 'motor__nome' # Ordenação padrão
 
-    # --- LÓGICA DA AÇÃO EM MASSA (Mantida) ---
+    # --- Botão para Dashboard ---
+    def acessar_dashboard(self, obj):
+        try:
+            url = reverse('components:posicaocomponente_detail', args=[obj.id])
+            return format_html(
+                '<a class="button" style="background-color: #28a745; color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold;" href="{}">📊 Ver Status</a>',
+                url
+            )
+        except Exception:
+            return "-"
+    acessar_dashboard.short_description = "Painel"
+    acessar_dashboard.allow_tags = True
+
+    # --- Alertas Visuais (Bolinhas) ---
+    def exibir_alertas_visual(self, obj):
+        alertas = obj.status_preventivas
+        if not alertas:
+            return format_html('<span style="color: green;">✔ OK</span>')
+        
+        html = ""
+        for alerta in alertas:
+            cor = "red" if "VENCIDO" in alerta else "orange"
+            html += f'<div style="color: {cor}; font-weight: bold; font-size: 11px;">• {alerta}</div>'
+        return format_html(html)
+    exibir_alertas_visual.short_description = "Status"
+
+    # --- Lógica da Ação em Massa ---
     @admin.action(description="➕ Adicionar Plano de Preventiva (Massa)")
     def adicionar_preventiva_em_massa(self, request, queryset):
         if 'apply' in request.POST:
@@ -67,7 +122,6 @@ class ComponenteBaseAdmin(TenantModelAdmin):
                 count = 0
                 for item in queryset:
                     tenant_id = item.tenant_id if hasattr(item, 'tenant_id') else request.user.tenant_id
-
                     PlanoPreventiva.objects.create(
                         tenant_id=tenant_id, 
                         posicao=item,
@@ -90,71 +144,38 @@ class ComponenteBaseAdmin(TenantModelAdmin):
             'title': 'Definir Preventiva em Massa'
         })
 
-    def acessar_dashboard(self, obj):
-        # Gera o link para a página de detalhes (certifique-se que essa URL existe)
-        # Se der erro, pode comentar temporariamente ou criar a URL
-        try:
-            url = reverse('components:posicaocomponente_detail', args=[obj.id])
-            return format_html(
-                '<a class="button" style="background-color: #28a745; color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold;" href="{}">📊 Ver Status</a>',
-                url
-            )
-        except:
-            return "-"
-    acessar_dashboard.short_description = "Painel"
-    acessar_dashboard.allow_tags = True
+# --- 4. Registro dos Menus ---
 
-    def exibir_alertas_visual(self, obj):
-        alertas = obj.status_preventivas
-        if not alertas:
-            return format_html('<span style="color: green;">✔ OK</span>')
-        
-        html = ""
-        for alerta in alertas:
-            cor = "red" if "VENCIDO" in alerta else "orange"
-            html += f'<div style="color: {cor}; font-weight: bold; font-size: 11px;">• {alerta}</div>'
-        return format_html(html)
-    exibir_alertas_visual.short_description = "Status"
-
-# --- 3. Registro dos Menus ---
-
-# IMPORTANTE: Registramos a classe PRINCIPAL para ver peças de Equipamentos
-# que talvez não se encaixem nos menus de motor (Filtros, Cilindros, etc)
+# Este é o registro PRINCIPAL para ver tudo (Motores e Equipamentos)
 @admin.register(PosicaoComponente)
 class PosicaoComponenteAdmin(ComponenteBaseAdmin):
     verbose_name = "Todos os Componentes"
 
+# Proxies (Menus Filtrados) - Mantêm a herança
 @admin.register(MenuOleo)
-class MenuOleoAdmin(ComponenteBaseAdmin):
-    pass
+class MenuOleoAdmin(ComponenteBaseAdmin): pass
 
 @admin.register(MenuFiltros)
-class MenuFiltrosAdmin(ComponenteBaseAdmin):
-    pass
+class MenuFiltrosAdmin(ComponenteBaseAdmin): pass
 
 @admin.register(MenuPerifericos)
-class MenuPerifericosAdmin(ComponenteBaseAdmin):
-    pass
+class MenuPerifericosAdmin(ComponenteBaseAdmin): pass
 
 @admin.register(MenuIgnicao)
-class MenuIgnicaoAdmin(ComponenteBaseAdmin):
-    pass
+class MenuIgnicaoAdmin(ComponenteBaseAdmin): pass
 
 @admin.register(MenuCilindros)
-class MenuCilindrosAdmin(ComponenteBaseAdmin):
-    pass
+class MenuCilindrosAdmin(ComponenteBaseAdmin): pass
 
 @admin.register(MenuCabecotes)
-class MenuCabecotesAdmin(ComponenteBaseAdmin):
-    pass
+class MenuCabecotesAdmin(ComponenteBaseAdmin): pass
 
 @admin.register(MenuOutros)
-class MenuOutrosAdmin(ComponenteBaseAdmin):
-    pass
+class MenuOutrosAdmin(ComponenteBaseAdmin): pass
 
-# --- 4. Outros Cadastros ---
+# --- 5. Configuração dos Grupos (Categorias) ---
 @admin.register(GrupoComponente)
 class GrupoComponenteAdmin(TenantModelAdmin):
-    # Adicionamos equipamento aqui também
     list_display = ('nome', 'motor', 'equipamento', 'ordem')
     list_filter = ('motor', 'equipamento')
+    search_fields = ('nome', 'motor__nome', 'equipamento__nome')

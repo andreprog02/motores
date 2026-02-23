@@ -16,6 +16,20 @@ class ModeloMotorAdmin(TenantModelAdmin):
     search_fields = ('nome', 'marca__nome') 
     autocomplete_fields = ['marca']
 
+@admin.register(Equipamento)
+class EquipamentoAdmin(TenantModelAdmin):
+    list_display = ('nome', 'horas_totais', 'localizacao', 'motor_associado', 'ver_componentes_link')
+    list_filter = ('em_operacao', 'motor_associado')
+    search_fields = ('nome', 'numero_serie', 'fabricante')
+    autocomplete_fields = ['motor_associado'] # Facilita buscar o motor se tiver muitos
+
+    def ver_componentes_link(self, obj):
+        # CORREÇÃO: Aponta para a lista de ITENS (PosicaoComponente) filtrada pelo equipamento
+        # Isso garante que você veja as peças e possa cadastrar as preventivas
+        url = reverse('admin:components_posicaocomponente_changelist') + f'?equipamento__id__exact={obj.id}'
+        return format_html('<a class="button" href="{}">📂 Ver Peças</a>', url)
+    ver_componentes_link.short_description = "Gestão"
+
 @admin.register(Motor)
 class MotorAdmin(TenantModelAdmin):
     autocomplete_fields = ['modelo']
@@ -56,21 +70,7 @@ class MotorAdmin(TenantModelAdmin):
     )
 
     def ver_componentes_link(self, obj):
-        # Gera o link para a tela de Categorias filtrada por este motor
-        url = reverse('admin:components_grupocomponente_changelist') + f'?motor__id__exact={obj.id}'
-        return format_html('<a class="button" href="{}">📂 Categorias</a>', url)
-    ver_componentes_link.short_description = "Gestão"
-
-
-@admin.register(Equipamento)
-class EquipamentoAdmin(TenantModelAdmin):
-    list_display = ('nome', 'horas_totais', 'localizacao', 'motor_associado', 'ver_componentes_link')
-    list_filter = ('em_operacao', 'motor_associado')
-    search_fields = ('nome', 'numero_serie', 'fabricante')
-    autocomplete_fields = ['motor_associado'] # Facilita buscar o motor se tiver muitos
-
-    def ver_componentes_link(self, obj):
-        # Gera link para filtrar componentes deste equipamento
-        url = reverse('admin:components_grupocomponente_changelist') + f'?equipamento__id__exact={obj.id}'
-        return format_html('<a class="button" href="{}">📂 Peças</a>', url)
+        # CORREÇÃO: Aponta para a lista de ITENS (PosicaoComponente) filtrada pelo motor
+        url = reverse('admin:components_posicaocomponente_changelist') + f'?motor__id__exact={obj.id}'
+        return format_html('<a class="button" href="{}">📂 Ver Peças</a>', url)
     ver_componentes_link.short_description = "Gestão"
