@@ -1,38 +1,57 @@
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from src.apps.maintenance.models import RegistroManutencao
-from src.apps.assets.models import PosicaoComponente, Motor
+from src.apps.assets.models import PosicaoComponente, Motor, Equipamento
 from src.apps.inventory.models import EstoqueItem
 
 def registrar_intervencao(
     *,
     tenant,
     usuario,
-    motor_id: int,
     posicao_id: int,
     tipo_atividade: str,
-    horimetro_atual: int, # Garante que recebemos um inteiro
+    horimetro_atual: int, 
     data_ocorrencia,
+    motor_id: int = None,       # Agora opcional
+    equipamento_id: int = None, # Novo parametro opcional
     estoque_item_id: int = None,
     novo_serial: str = None,
     observacao: str = ""
 ) -> RegistroManutencao:
     
     with transaction.atomic():
-        motor = Motor.objects.get(id=motor_id, tenant=tenant)
+        # --- 1. Identificar o Ativo (Motor ou Equipamento) ---
+        motor = None
+        equipamento = None
+        ativo = None
+
+        if motor_id:
+            motor = Motor.objects.get(id=motor_id, tenant=tenant)
+            ativo = motor
+        elif equipamento_id:
+            equipamento = Equipamento.objects.get(id=equipamento_id, tenant=tenant)
+            ativo = equipamento
+        else:
+            raise ValidationError("É necessário informar o ID do Motor ou do Equipamento para registrar a intervenção.")
+
+        # Busca a posição e trava o registro
         posicao = PosicaoComponente.objects.select_for_update().get(id=posicao_id, tenant=tenant)
         
-        # 1. Validação de Hierarquia (Horas)
-        # Como agora tudo é inteiro, a comparação é direta e segura
-        if horimetro_atual > motor.horas_totais:
+        # (Opcional) Validação de Integridade: A peça pertence mesmo a este ativo?
+        if posicao.ativo_pai != ativo:
+             raise ValidationError(f"O componente '{posicao.nome}' não pertence ao ativo informado ({ativo}).")
+
+        # --- 2. Validação de Hierarquia (Horas) ---
+        # Compara com o horímetro do ativo correto
+        if horimetro_atual > ativo.horas_totais:
             raise ValidationError(
-                f"Erro: O motor tem {motor.horas_totais}h. "
+                f"Erro: O ativo {ativo} tem {ativo.horas_totais}h. "
                 f"Não é possível registrar intervenção futura com {horimetro_atual}h."
             )
 
         item_estoque = None
         
-        # 2. Lógica de Troca de Peças
+        # --- 3. Lógica de Troca de Peças ---
         if tipo_atividade in ['TROCA', 'SUBSTITUICAO']:
             if not estoque_item_id:
                 raise ValidationError("Para substituição, informe o Item de Estoque.")
@@ -40,20 +59,21 @@ def registrar_intervencao(
             item_estoque = EstoqueItem.objects.select_for_update().get(id=estoque_item_id, tenant=tenant)
             catalogo = item_estoque.catalogo
 
-            # 3. Validação de Compatibilidade (Motor x Peça)
-            if not catalogo.aplicacao_universal:
+            # 4. Validação de Compatibilidade (Motor x Peça)
+            # Se for MOTOR, validamos rigorosamente o modelo.
+            # Se for EQUIPAMENTO, validamos apenas se for universal (ou pulamos a validação de modelo de motor).
+            if motor and not catalogo.aplicacao_universal:
                 if not catalogo.modelos_compativeis.filter(id=motor.modelo.id).exists():
                     raise ValidationError(f"Peça incompatível com o motor {motor.modelo}.")
             
-            # 4. Baixa no Estoque
-            # Verifica se tem quantidade suficiente (agora comparando inteiros)
+            # 5. Baixa no Estoque
             if item_estoque.quantidade < catalogo.quantidade_por_jogo:
                 raise ValidationError(f"Estoque insuficiente. Disponível: {item_estoque.quantidade}")
             
             item_estoque.quantidade -= catalogo.quantidade_por_jogo
             item_estoque.save()
 
-            # 5. Atualiza a Posição no Motor
+            # 6. Atualiza a Posição no Ativo
             posicao.peca_instalada = catalogo
             posicao.hora_motor_instalacao = horimetro_atual
             posicao.data_instalacao = data_ocorrencia
@@ -64,15 +84,16 @@ def registrar_intervencao(
             posicao.ultimo_engraxamento = data_ocorrencia
             posicao.save()
 
-        # 6. Cria o Registro Histórico
+        # --- 7. Cria o Registro Histórico ---
         return RegistroManutencao.objects.create(
             tenant=tenant,
             responsavel=usuario,
-            motor=motor,
+            motor=motor,              # Salva Motor (se houver)
+            equipamento=equipamento,  # Salva Equipamento (se houver)
             posicao=posicao,
             tipo_atividade=tipo_atividade,
             horimetro_na_execucao=horimetro_atual,
-            item_estoque_utilizado=item_estoque,
+            item_estoque=item_estoque, # Corrigido para corresponder ao models.py
             novo_serial_number=novo_serial,
             data_ocorrencia=data_ocorrencia,
             observacao=observacao

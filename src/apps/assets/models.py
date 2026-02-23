@@ -78,3 +78,37 @@ class Motor(TenantAwareModel):
         super().save(*args, **kwargs)
 
     def __str__(self): return f"{self.nome} ({self.modelo.nome})"
+
+
+class Equipamento(TenantAwareModel):
+    """
+    Ativos independentes (Periféricos) que possuem horímetro próprio.
+    Ex: Compressores, Geradores, Blowers, Ar Condicionado.
+    """
+    nome = models.CharField(max_length=100)
+    fabricante = models.CharField(max_length=100, blank=True, null=True)
+    modelo = models.CharField(max_length=100, blank=True, null=True)
+    numero_serie = models.CharField(max_length=100, blank=True, null=True)
+    localizacao = models.CharField(max_length=100, verbose_name="Localização")
+    
+    # Horímetro Independente (O coração da mudança)
+    horas_totais = models.IntegerField(default=0, verbose_name="Horímetro Atual")
+    em_operacao = models.BooleanField(default=True, verbose_name="Em Operação?")
+    
+    # Link Opcional (Apenas para saber a qual motor ele serve, se servir a algum)
+    motor_associado = models.ForeignKey(
+        Motor, 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True,
+        related_name='perifericos_externos',
+        verbose_name="Motor Associado (Opcional)",
+        help_text="Se este equipamento atende a um motor específico (ex: Blower da Sala 1)"
+    )
+
+    class Meta:
+        verbose_name = "Equipamento / Periférico"
+        verbose_name_plural = "Equipamentos e Periféricos"
+        ordering = ['nome']
+
+    def __str__(self):
+        return f"{self.nome} ({self.horas_totais}h)"

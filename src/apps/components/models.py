@@ -2,7 +2,7 @@ from datetime import date
 from django.db import models
 from src.apps.core.models import TenantAwareModel
 from src.apps.inventory.models import CatalogoPeca
-from src.apps.assets.models import Motor
+from src.apps.assets.models import Motor, Equipamento  # Importamos o novo modelo Equipamento
 
 # --- OPÇÕES COMPARTILHADAS ---
 
@@ -23,9 +23,24 @@ UNIDADES_MEDIDA = [
     ('MESES', 'Meses'),
 ]
 
-# --- 1. O GRUPO (A Pasta Real) ---
+# --- 1. O GRUPO (A Pasta Virtual) ---
 class GrupoComponente(TenantAwareModel):
-    motor = models.ForeignKey(Motor, related_name='grupos', on_delete=models.CASCADE)
+    """
+    Agrupador de componentes. Pode pertencer a um Motor ou a um Equipamento.
+    """
+    motor = models.ForeignKey(
+        Motor, 
+        related_name='grupos', 
+        on_delete=models.CASCADE,
+        null=True, blank=True  # Opcional
+    )
+    equipamento = models.ForeignKey(
+        Equipamento,
+        related_name='grupos',
+        on_delete=models.CASCADE,
+        null=True, blank=True  # Opcional (Novo)
+    )
+    
     nome = models.CharField(max_length=100)
     slug = models.SlugField(max_length=50, blank=True, null=True)
     ordem = models.PositiveIntegerField(default=0)
@@ -34,14 +49,32 @@ class GrupoComponente(TenantAwareModel):
         verbose_name = "Gerenciar Categoria"
         verbose_name_plural = "Gerenciar Categorias"
         ordering = ['ordem', 'nome']
-        unique_together = ('motor', 'nome')
+        # Removemos unique_together estrito pois agora um dos dois pode ser null
+        # unique_together = ('motor', 'nome') 
 
     def __str__(self):
-        return f"{self.nome} ({self.motor.nome})"
+        if self.motor:
+            return f"{self.nome} (Motor: {self.motor.nome})"
+        if self.equipamento:
+            return f"{self.nome} (Eqp: {self.equipamento.nome})"
+        return self.nome
 
 # --- 2. O ITEM (Componente Físico) ---
 class PosicaoComponente(TenantAwareModel):
-    motor = models.ForeignKey(Motor, related_name='componentes', on_delete=models.CASCADE)
+    # --- Vínculos (Um dos dois deve ser preenchido) ---
+    motor = models.ForeignKey(
+        Motor, 
+        related_name='componentes', 
+        on_delete=models.CASCADE,
+        null=True, blank=True
+    )
+    equipamento = models.ForeignKey(
+        Equipamento,
+        related_name='componentes',
+        on_delete=models.CASCADE,
+        null=True, blank=True
+    )
+    
     grupo = models.ForeignKey(GrupoComponente, related_name='itens', on_delete=models.SET_NULL, null=True, blank=True)
     
     nome = models.CharField(max_length=200)
@@ -55,6 +88,8 @@ class PosicaoComponente(TenantAwareModel):
     serial_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="Nº de Série")
     
     data_instalacao = models.DateField(null=True, blank=True, verbose_name="Data Última Troca")
+    
+    # Snapshot da instalação (Horas/Arranques do Ativo Pai naquele momento)
     hora_motor_instalacao = models.IntegerField(default=0)
     arranques_motor_instalacao = models.IntegerField(default=0)
     
@@ -72,17 +107,29 @@ class PosicaoComponente(TenantAwareModel):
         verbose_name_plural = "Todos os Componentes"
 
     def __str__(self):
-        return f"{self.nome} [{self.peca_instalada.nome if self.peca_instalada else 'Vazio'}]"
+        ativo = self.ativo_pai
+        nome_ativo = ativo.nome if ativo else "Sem Vínculo"
+        peca = self.peca_instalada.nome if self.peca_instalada else 'Vazio'
+        return f"{self.nome} ({nome_ativo}) [{peca}]"
+
+    @property
+    def ativo_pai(self):
+        """Retorna o objeto Motor ou Equipamento dono deste componente."""
+        return self.motor if self.motor else self.equipamento
 
     @property
     def horas_uso_atual(self):
-        """Calcula as horas rodadas desde a instalação nesta posição"""
-        return self.motor.horas_totais - self.hora_motor_instalacao
+        """Calcula as horas rodadas desde a instalação nesta posição, 
+           independente se é Motor ou Equipamento."""
+        ativo = self.ativo_pai
+        if not ativo:
+            return 0
+        return ativo.horas_totais - self.hora_motor_instalacao
 
     @property
     def status_preventivas(self):
         """
-        Retorna uma lista simples de strings para alertas rápidos (ex: no Admin ou Listagem).
+        Retorna uma lista simples de strings para alertas rápidos.
         """
         detalhes = self.get_detalhes_preventivas()
         alertas = []
@@ -96,13 +143,21 @@ class PosicaoComponente(TenantAwareModel):
     # --- MÉTODO PRINCIPAL PARA O DASHBOARD (TABELA DINÂMICA) ---
     def get_detalhes_preventivas(self):
         """
-        Retorna uma lista detalhada de todos os planos.
-        Agora calcula valores negativos para mostrar 'Há quanto tempo' está vencido.
+        Retorna uma lista detalhada de todos os planos, calculando
+        com base no horímetro/arranques do ativo pai (Motor ou Equipamento).
         """
         lista_status = []
         
-        horas_motor = self.motor.horas_totais
-        arranques_motor = self.motor.total_arranques
+        ativo = self.ativo_pai
+        
+        # Se não tiver pai, não há como calcular horas
+        if not ativo:
+            return []
+
+        horas_ativo = ativo.horas_totais
+        # Equipamentos podem não ter arranques, usamos getattr para segurança
+        arranques_ativo = getattr(ativo, 'total_arranques', 0)
+        
         hoje = date.today()
 
         for plano in self.planos_preventiva.all():
@@ -133,7 +188,7 @@ class PosicaoComponente(TenantAwareModel):
                 if base == 0 and self.hora_motor_instalacao:
                     base = self.hora_motor_instalacao
                 
-                uso = horas_motor - base
+                uso = horas_ativo - base
                 if uso < 0: uso = 0
                 
                 falta = plano.intervalo_valor - uso
@@ -149,7 +204,6 @@ class PosicaoComponente(TenantAwareModel):
                 if plano.intervalo_valor > 0:
                     dados['progresso_pct'] = (uso / plano.intervalo_valor) * 100
                 
-                # Define atenção se não estiver vencido mas estiver perto
                 if not vencido and uso >= (plano.intervalo_valor * 0.9): 
                     atencao = True
 
@@ -159,7 +213,7 @@ class PosicaoComponente(TenantAwareModel):
                 if base == 0 and self.arranques_motor_instalacao:
                     base = self.arranques_motor_instalacao
                 
-                uso = arranques_motor - base
+                uso = arranques_ativo - base
                 if uso < 0: uso = 0
                 
                 falta = plano.intervalo_valor - uso
@@ -218,8 +272,7 @@ class PosicaoComponente(TenantAwareModel):
             if vencido:
                 dados['status'] = 'VENCIDO'
                 dados['cor'] = 'danger' # Vermelho
-                dados['progresso_pct'] = 100 # Barra cheia para layout
-                # Removemos a sobrescrita de 'restante' aqui para manter o texto "Vencido há..."
+                dados['progresso_pct'] = 100 
                 
             elif atencao:
                 dados['status'] = 'ATENÇÃO'
@@ -229,7 +282,7 @@ class PosicaoComponente(TenantAwareModel):
 
         return lista_status
 
-# --- 3. PLANOS DE PREVENTIVA (Flexível) ---
+# --- 3. PLANOS DE PREVENTIVA (Mantém Igual) ---
 class PlanoPreventiva(TenantAwareModel):
     posicao = models.ForeignKey(
         PosicaoComponente, 
@@ -239,7 +292,6 @@ class PlanoPreventiva(TenantAwareModel):
     
     tarefa = models.CharField(max_length=100, verbose_name="Nome da Tarefa") 
     
-    # GATILHO DE RESET (Para automação)
     tipo_servico = models.CharField(
         max_length=50,
         choices=TIPOS_SERVICO_OPCOES, 
@@ -247,7 +299,6 @@ class PlanoPreventiva(TenantAwareModel):
         help_text="Qual serviço no Livro de Ocorrências zera este plano?"
     )
 
-    # --- DEFINIÇÃO DO INTERVALO ---
     unidade = models.CharField(
         max_length=20, 
         choices=UNIDADES_MEDIDA, 
@@ -260,15 +311,12 @@ class PlanoPreventiva(TenantAwareModel):
         help_text="Ex: 500 (Horas), 6 (Meses), 1000 (Arranques)"
     )
 
-    # --- CONTROLE DE EXECUÇÃO ---
-    # Armazena o valor do contador no momento da última execução
     ultima_execucao_valor = models.IntegerField(
         default=0, 
         verbose_name="Último Contador (Horas/Arranques)",
         help_text="Armazena o horímetro ou nº de arranques da última troca"
     )
     
-    # Armazena a data da última execução (Para planos de TEMPO)
     ultima_execucao_data = models.DateField(
         null=True, blank=True,
         verbose_name="Data Última Execução"
@@ -277,7 +325,7 @@ class PlanoPreventiva(TenantAwareModel):
     def __str__(self):
         return f"{self.tarefa} (A cada {self.intervalo_valor} {self.get_unidade_display()})"
 
-# --- 4. OS MENUS (Proxies) ---
+# --- 4. OS MENUS (Proxies - Filtros Visuais) ---
 
 class MenuOleo(PosicaoComponente):
     class Meta:

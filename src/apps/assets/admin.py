@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from src.apps.core.admin import TenantModelAdmin
-from .models import Motor, MarcaMotor, ModeloMotor
+from .models import Motor, MarcaMotor, ModeloMotor, Equipamento
 
 @admin.register(MarcaMotor)
 class MarcaMotorAdmin(TenantModelAdmin):
@@ -59,4 +59,18 @@ class MotorAdmin(TenantModelAdmin):
         # Gera o link para a tela de Categorias filtrada por este motor
         url = reverse('admin:components_grupocomponente_changelist') + f'?motor__id__exact={obj.id}'
         return format_html('<a class="button" href="{}">📂 Categorias</a>', url)
+    ver_componentes_link.short_description = "Gestão"
+
+
+@admin.register(Equipamento)
+class EquipamentoAdmin(TenantModelAdmin):
+    list_display = ('nome', 'horas_totais', 'localizacao', 'motor_associado', 'ver_componentes_link')
+    list_filter = ('em_operacao', 'motor_associado')
+    search_fields = ('nome', 'numero_serie', 'fabricante')
+    autocomplete_fields = ['motor_associado'] # Facilita buscar o motor se tiver muitos
+
+    def ver_componentes_link(self, obj):
+        # Gera link para filtrar componentes deste equipamento
+        url = reverse('admin:components_grupocomponente_changelist') + f'?equipamento__id__exact={obj.id}'
+        return format_html('<a class="button" href="{}">📂 Peças</a>', url)
     ver_componentes_link.short_description = "Gestão"

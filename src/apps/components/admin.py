@@ -16,9 +16,9 @@ from .models import (
 # --- 1. Inline para cadastrar preventivas dentro do Item ---
 class PlanoPreventivaInline(admin.TabularInline):
     model = PlanoPreventiva
-    extra = 0
+    extra = 1  # Mudei para 1 para facilitar a adição rápida
     fields = ('tarefa', 'tipo_servico', 'unidade', 'intervalo_valor', 'ultima_execucao_data', 'ultima_execucao_valor')
-    classes = ('collapse',) # Deixa recolhido para não poluir
+    classes = ('collapse',) 
 
 # --- NOVO: Formulário para a Ação em Massa ---
 class PreventivaMassaForm(forms.ModelForm):
@@ -30,22 +30,32 @@ class PreventivaMassaForm(forms.ModelForm):
             'intervalo_valor': 'Ex: 500 (se for Horas), 6 (se for Meses)'
         }
 
-# --- 2. Configuração Base para todos os Menus ---
+# --- 2. Configuração Base (AGORA HÍBRIDA: MOTOR E EQUIPAMENTO) ---
 class ComponenteBaseAdmin(TenantModelAdmin):
-    list_display = ('nome', 'motor', 'horas_uso_atual', 'exibir_alertas_visual', 'acessar_dashboard')
-    list_filter = ('motor', 'grupo')
-    search_fields = ('nome', 'serial_number')
+    # Alterado: Trocamos 'motor' por 'get_ativo_pai' para mostrar o dono correto
+    list_display = ('nome', 'get_ativo_pai', 'horas_uso_atual', 'exibir_alertas_visual', 'acessar_dashboard')
     
-    # Adiciona a tabelinha de preventivas na tela de edição também
+    # Alterado: Adicionado filtro por Equipamento
+    list_filter = ('motor', 'equipamento', 'grupo') 
+    
+    search_fields = ('nome', 'serial_number', 'motor__nome', 'equipamento__nome')
+    
     inlines = [PlanoPreventivaInline]
-
-    # --- NOVA AÇÃO REGISTRADA ---
     actions = ['adicionar_preventiva_em_massa']
 
-    # --- LÓGICA DA AÇÃO EM MASSA ---
+    # --- Coluna Inteligente: Mostra Motor ou Equipamento ---
+    def get_ativo_pai(self, obj):
+        if obj.motor:
+            return f"Ⓜ️ {obj.motor.nome}"
+        if obj.equipamento:
+            return f"⚙️ {obj.equipamento.nome}"
+        return "-"
+    get_ativo_pai.short_description = "Pertence a"
+    get_ativo_pai.admin_order_field = 'motor__nome'
+
+    # --- LÓGICA DA AÇÃO EM MASSA (Mantida) ---
     @admin.action(description="➕ Adicionar Plano de Preventiva (Massa)")
     def adicionar_preventiva_em_massa(self, request, queryset):
-        # Se o formulário foi enviado (Clicou em "Confirmar" na tela intermediária)
         if 'apply' in request.POST:
             form = PreventivaMassaForm(request.POST)
             if form.is_valid():
@@ -56,8 +66,6 @@ class ComponenteBaseAdmin(TenantModelAdmin):
                 
                 count = 0
                 for item in queryset:
-                    # Cria o plano para cada item selecionado
-                    # Usa o tenant do próprio item para garantir consistência
                     tenant_id = item.tenant_id if hasattr(item, 'tenant_id') else request.user.tenant_id
 
                     PlanoPreventiva.objects.create(
@@ -67,14 +75,12 @@ class ComponenteBaseAdmin(TenantModelAdmin):
                         tipo_servico=tipo,
                         unidade=unidade,
                         intervalo_valor=intervalo,
-                        ultima_execucao_valor=0 # Começa zerado
+                        ultima_execucao_valor=0 
                     )
                     count += 1
                 
                 self.message_user(request, f"Sucesso! Plano '{tarefa}' criado para {count} componentes.")
                 return HttpResponseRedirect(request.get_full_path())
-        
-        # Se é a primeira vez (Clicou na Ação), exibe o formulário intermediário
         else:
             form = PreventivaMassaForm()
 
@@ -84,31 +90,39 @@ class ComponenteBaseAdmin(TenantModelAdmin):
             'title': 'Definir Preventiva em Massa'
         })
 
-    # --- O BOTÃO MÁGICO QUE VOCÊ QUERIA ---
     def acessar_dashboard(self, obj):
-        # Gera o link para a página que criamos (posicaocomponente_detail)
-        url = reverse('components:posicaocomponente_detail', args=[obj.id])
-        return format_html(
-            '<a class="button" style="background-color: #28a745; color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold;" href="{}">📊 Ver Status / Preventivas</a>',
-            url
-        )
-    acessar_dashboard.short_description = "Painel de Manutenção"
+        # Gera o link para a página de detalhes (certifique-se que essa URL existe)
+        # Se der erro, pode comentar temporariamente ou criar a URL
+        try:
+            url = reverse('components:posicaocomponente_detail', args=[obj.id])
+            return format_html(
+                '<a class="button" style="background-color: #28a745; color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold;" href="{}">📊 Ver Status</a>',
+                url
+            )
+        except:
+            return "-"
+    acessar_dashboard.short_description = "Painel"
     acessar_dashboard.allow_tags = True
 
-    # Coluna de Alertas Visuais (Bolinhas Coloridas na lista)
     def exibir_alertas_visual(self, obj):
         alertas = obj.status_preventivas
         if not alertas:
-            return format_html('<span style="color: green;">✔ Em dia</span>')
+            return format_html('<span style="color: green;">✔ OK</span>')
         
         html = ""
         for alerta in alertas:
             cor = "red" if "VENCIDO" in alerta else "orange"
             html += f'<div style="color: {cor}; font-weight: bold; font-size: 11px;">• {alerta}</div>'
         return format_html(html)
-    exibir_alertas_visual.short_description = "Situação Atual"
+    exibir_alertas_visual.short_description = "Status"
 
-# --- 3. Registro dos Menus (Proxies) ---
+# --- 3. Registro dos Menus ---
+
+# IMPORTANTE: Registramos a classe PRINCIPAL para ver peças de Equipamentos
+# que talvez não se encaixem nos menus de motor (Filtros, Cilindros, etc)
+@admin.register(PosicaoComponente)
+class PosicaoComponenteAdmin(ComponenteBaseAdmin):
+    verbose_name = "Todos os Componentes"
 
 @admin.register(MenuOleo)
 class MenuOleoAdmin(ComponenteBaseAdmin):
@@ -141,5 +155,6 @@ class MenuOutrosAdmin(ComponenteBaseAdmin):
 # --- 4. Outros Cadastros ---
 @admin.register(GrupoComponente)
 class GrupoComponenteAdmin(TenantModelAdmin):
-    list_display = ('nome', 'motor', 'ordem')
-    list_filter = ('motor',)
+    # Adicionamos equipamento aqui também
+    list_display = ('nome', 'motor', 'equipamento', 'ordem')
+    list_filter = ('motor', 'equipamento')
